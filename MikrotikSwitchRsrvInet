@@ -1,0 +1,119 @@
+#пингуемые хосты
+#ya.ru
+:local pingTarget1 "213.180.204.3"
+#google.com
+:local pingTarget2 "64.233.164.100"
+#ya DNS
+:local pingTarget3 "77.88.8.1"
+#mail.ru
+:local pingTarget4 "94.100.180.202"
+
+:local pingTarget5 "8.8.8.8"
+:local pingTarget6 "8.8.4.4"
+
+#имя сетевых интерфейсов
+:local ethMain "ether1-gateway"
+:local ethRsrv "bridge-local"
+
+:local ipCount 4
+:local mainInetStatus false
+:local rsrvInetStatus false
+
+# переменнная тайм-аута при переключение
+:global timeOut
+:global checkConnectionCount
+
+if ($timeOut = 0 || $timeOut < 0) do={
+	# Пинги через основной инте
+	:local pingResult1 [/ping $pingTarget1 count=$ipCount interface=$ethMain]
+	:local pingResult2 [/ping $pingTarget2 count=$ipCount interface=$ethMain]
+	:local pingResult3 [/ping $pingTarget5 count=$ipCount interface=$ethMain]
+
+	#проверка статуса основного инета
+	:set mainInetStatus (($pingResult1+$pingResult2+$pingResult3)>=($ipCount*2))
+
+	#Пинги через резервный канал
+	:local pingResult1 [/ping $pingTarget3 count=$ipCount interface=$ethRsrv]
+	:local pingResult2 [/ping $pingTarget4 count=$ipCount interface=$ethRsrv]
+	:local pingResult3 [/ping $pingTarget6 count=$ipCount interface=$ethRsrv]
+
+	#проверка статуса резервного канала
+	:set rsrvInetStatus (($pingResult1+$pingResult2+$pingResult3)>=($ipCount*2))
+
+	#Вывод кудато в терминал статусы :D
+	:put "mainInetStatus=$mainInetStatus"
+	:put "rsrvInetStatus=$rsrvInetStatus"
+
+	#Вывод в лог если инет Пал
+	if ($checkConnectionCount = 2) do={	                                   
+
+		if (!$mainInetStatus) do={
+			/log error "Main internet connection error"
+		}
+
+		if (!$rsrvInetStatus) do={
+			/log error "Reserve internet connection error"
+		}
+	
+
+		#Узнаем значения дистанции на обоих GW
+		:local mainGWDistance [/ip route get [find comment="isp1"] distance]
+		:local rsrvGWDistance [/ip route get [find comment="isp2"] distance]
+
+		#Переключение инета на основной если он работает
+		if ($mainInetStatus && ($mainGWDistance >= $rsrvGWDistance)) do={                                   
+			#/ip route set [find comment="isp1"] distance=1
+			#/ip route set [find comment="isp2"] distance=2
+			#/ip dns set servers=8.8.8.8
+			/log error "Switch to main Inet."
+			delay 100ms
+			#/ip firewall connection remove [find where protocol~"udp"]
+			delay 100ms
+			#/ip firewall connection remove [find where protocol~"tcp"]
+			#/tool e-mail send to="rkhromov@topdelivery.ru" subject="Main inet-activated-office"
+		} 
+
+		#Переключение инета на резервный если главный не работает
+		if (!$mainInetStatus && $rsrvInetStatus && ($mainGWDistance <= $rsrvGWDistance)) do={		                                   
+			#/ip route set [find comment="isp1"] distance=2
+			#/ip route set [find comment="isp2"] distance=1
+			#/ip dns set servers=8.8.4.4
+			/log error "Switch to rsrv Inet."
+			delay 100ms
+			#/ip firewall connection remove [find where protocol~"udp"]
+			delay 100ms
+			#/ip firewall connection remove [find where protocol~"tcp"]
+			#/tool e-mail send to="rkhromov@topdelivery.ru" subject="Rsrv inet-activated-office"
+		}
+		
+	}
+
+	# Если при проверка сказала что инет не работает, проверяем еще 3 раза что бы убедиться.
+
+	if (!$mainInetStatus) do={
+		/log error "try connected #$checkConnectionCount"
+		
+		if ($checkConnectionCount >= 1 && $checkConnectionCount < 3) do={
+			:set checkConnectionCount ($checkConnectionCount+1)
+		}
+		
+		if ($checkConnectionCount = 0 || $checkConnectionCount < 0) do={
+			:set checkConnectionCount 1
+		}
+
+		if ($checkConnectionCount = 3) do={
+			# после трех проверок обнуляем псчетчик проверок 
+			:set checkConnectionCount 0
+			# и устанавливаем таймаун следующих проверок
+			:set timeOut 10
+		}
+
+	} else={
+		# если инет работает то счетчик в нуле
+		:set checkConnectionCount 0
+	}
+
+} else={
+	:set timeOut ($timeOut-1)
+	/log error "Script timeOut $timeOut, 1 tick 30 sec" 
+}
