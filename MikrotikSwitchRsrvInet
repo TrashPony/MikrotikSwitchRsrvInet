@@ -44,37 +44,35 @@ if ($timeOut = 0 || $timeOut < 0) do={
 	:put "mainInetStatus=$mainInetStatus"
 	:put "rsrvInetStatus=$rsrvInetStatus"
 
-	#Вывод в лог если инет Пал
-	if ($checkConnectionCount = 2) do={	                                   
+	if (!$rsrvInetStatus) do={
+		/log error "Reserve internet connection error"
+	}
+
+	#Узнаем значения дистанции на обоих GW
+	:local mainGWDistance [/ip route get [find comment="isp1"] distance]
+	:local rsrvGWDistance [/ip route get [find comment="isp2"] distance]
+
+	#Переключение инета на основной если он работает
+	if ($mainInetStatus && ($mainGWDistance >= $rsrvGWDistance)) do={
+		/ip route set [find comment="isp1"] distance=1
+		/ip route set [find comment="isp2"] distance=2
+		/ip dns set servers=8.8.8.8
+		/log error "Switch to main Inet."
+		delay 100ms
+		/ip firewall connection remove [find where protocol~"udp"]
+		delay 100ms
+		/ip firewall connection remove [find where protocol~"tcp"]
+		/tool e-mail send to="rkhromov@topdelivery.ru" subject="Main inet-activated-office"
+	}
+
+	if ($checkConnectionCount = 2) do={
 
 		if (!$mainInetStatus) do={
 			/log error "Main internet connection error"
 		}
 
-		if (!$rsrvInetStatus) do={
-			/log error "Reserve internet connection error"
-		}
-	
-
-		#Узнаем значения дистанции на обоих GW
-		:local mainGWDistance [/ip route get [find comment="isp1"] distance]
-		:local rsrvGWDistance [/ip route get [find comment="isp2"] distance]
-
-		#Переключение инета на основной если он работает
-		if ($mainInetStatus && ($mainGWDistance >= $rsrvGWDistance)) do={                                   
-			/ip route set [find comment="isp1"] distance=1
-			/ip route set [find comment="isp2"] distance=2
-			/ip dns set servers=8.8.8.8
-			/log error "Switch to main Inet."
-			delay 100ms
-			/ip firewall connection remove [find where protocol~"udp"]
-			delay 100ms
-			/ip firewall connection remove [find where protocol~"tcp"]
-			/tool e-mail send to="" subject="Main inet-activated-office"
-		} 
-
 		#Переключение инета на резервный если главный не работает
-		if (!$mainInetStatus && $rsrvInetStatus && ($mainGWDistance <= $rsrvGWDistance)) do={		                                   
+		if (!$mainInetStatus && $rsrvInetStatus && ($mainGWDistance <= $rsrvGWDistance)) do={
 			/ip route set [find comment="isp1"] distance=2
 			/ip route set [find comment="isp2"] distance=1
 			/ip dns set servers=8.8.4.4
@@ -83,7 +81,7 @@ if ($timeOut = 0 || $timeOut < 0) do={
 			/ip firewall connection remove [find where protocol~"udp"]
 			delay 100ms
 			/ip firewall connection remove [find where protocol~"tcp"]
-			/tool e-mail send to="" subject="Rsrv inet-activated-office"
+			/tool e-mail send to="rkhromov@topdelivery.ru" subject="Rsrv inet-activated-office"
 		}
 		
 	}
